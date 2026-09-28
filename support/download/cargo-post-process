@@ -11,11 +11,12 @@ if [ "${BR_CARGO_MANIFEST_PATH}" ]; then
 fi
 
 manifest=Cargo.toml
-while getopts "n:o:m:" OPT; do
+while getopts "n:o:m:l:" OPT; do
     case "${OPT}" in
     o)  output="${OPTARG}";;
     n)  base_name="${OPTARG}";;
     m)  manifest="${OPTARG}";;
+    l)  lock_file="${OPTARG}";;
     :)  error "option '%s' expects a mandatory argument\n" "${OPTARG}";;
     \?) error "unknown option '%s'\n" "${OPTARG}";;
     esac
@@ -48,6 +49,10 @@ mkdir -p "${CARGO_HOME}"
 
 # batocera - Check if Cargo.lock exists relative to the discovered manifest.
 manifest_dir=$(dirname "${real_manifest}")
+if [ -n "${lock_file:-}" ]; then
+    # A package-provided lock must be used before dependency resolution.
+    cp "${lock_file}" "${manifest_dir}/Cargo.lock"
+fi
 if [ ! -f "${manifest_dir}/Cargo.lock" ]; then
     printf 'Note: Cargo.lock not found, generating one...\n' >&2
     locked_arg=""
@@ -60,6 +65,10 @@ cargo vendor \
     --manifest-path "${real_manifest}" \
     ${locked_arg} VENDOR \
     > .cargo/config.toml || {
+        if [ -n "${lock_file:-}" ]; then
+            printf 'Vendoring with the package-provided Cargo.lock failed; refusing to update it.\n' >&2
+            exit 1
+        fi
         printf 'Note: --locked failed or manifest changed, attempting to update lockfile...\n' >&2
         flock "${CARGO_HOME}"/.br-lock \
         cargo vendor \
